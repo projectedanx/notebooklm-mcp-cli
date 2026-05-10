@@ -153,9 +153,9 @@ class TestQueryUsesServerConversationId:
         mixin = self._make_mixin()
         with (
             patch.object(mixin, "get_conversation_id", return_value="server-conv-id"),
-            patch.object(mixin, "_get_client") as mock_client,
+            patch("notebooklm_tools.core.conversation._httpx.Client") as mock_client_class,
         ):
-            mock_response = mock_client.return_value.post.return_value
+            mock_response = mock_client_class.return_value.__enter__.return_value.post.return_value
             mock_response.text = ")]}'\n100\n" + json.dumps(
                 [
                     [
@@ -176,9 +176,9 @@ class TestQueryUsesServerConversationId:
         mixin = self._make_mixin()
         with (
             patch.object(mixin, "get_conversation_id", return_value=None),
-            patch.object(mixin, "_get_client") as mock_client,
+            patch("notebooklm_tools.core.conversation._httpx.Client") as mock_client_class,
         ):
-            mock_response = mock_client.return_value.post.return_value
+            mock_response = mock_client_class.return_value.__enter__.return_value.post.return_value
             mock_response.text = ")]}'\n100\n" + json.dumps(
                 [
                     [
