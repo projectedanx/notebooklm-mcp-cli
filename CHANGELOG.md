@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Hermes Agent Support** — `nlm skill install hermes` now installs the NotebookLM skill for [Hermes Agent](https://github.com/NousResearch/hermes-agent) by NousResearch. Respects the `$HERMES_HOME` environment variable for custom install paths.
+- **EPUB File Upload Support (PR #191)** — `.epub` files can now be uploaded as notebook sources. Thanks to **@mateogon** for the contribution!
 
 ### Fixed
 
