@@ -327,8 +327,7 @@ class TestCDPStartupHandling:
     # ------------------------------------------------------------------
 
     def test_get_chrome_path_linux_returns_first_found(self):
-        """On Linux, get_chrome_path returns the command name (not full path) of the
-        first executable found — shutil.which resolution is the caller's concern."""
+        """On Linux, get_chrome_path returns the full path from shutil.which."""
         from notebooklm_tools.utils.cdp import get_chrome_path
 
         def fake_which(cmd):
@@ -339,8 +338,7 @@ class TestCDPStartupHandling:
             patch("notebooklm_tools.utils.cdp.shutil.which", side_effect=fake_which),
         ):
             result = get_chrome_path()
-        # get_chrome_path returns the raw executable name, not the resolved path
-        assert result == "brave-browser"
+        assert result == "/usr/bin/brave-browser"
 
     def test_get_chrome_path_linux_returns_none_when_nothing_found(self):
         """On Linux, get_chrome_path returns None when no browser is on PATH."""
@@ -380,7 +378,7 @@ class TestCDPStartupHandling:
             patch("notebooklm_tools.utils.cdp.shutil.which", side_effect=fake_which),
         ):
             result = get_chrome_path()
-        assert result == "google-chrome"
+        assert result == "/usr/bin/google-chrome"
 
     # ------------------------------------------------------------------
     # get_chrome_path — Windows
