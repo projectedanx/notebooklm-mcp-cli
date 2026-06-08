@@ -62,15 +62,15 @@ def test_download_artifact_appends_download_url(tmp_path):
 
     mock_client = MagicMock()
     mock_download_result = {
+        "artifact_type": "audio",
         "path": str(dummy_file),
-        "filename": "artifact.mp3",
-        "size_bytes": 19,
+        "attempts": 1,
     }
 
     with (
         patch("notebooklm_tools.mcp.tools.downloads.get_client", return_value=mock_client),
         patch(
-            "notebooklm_tools.mcp.tools.downloads.downloads_service.download_async",
+            "notebooklm_tools.mcp.tools.downloads.poll_download_artifact",
             return_value=mock_download_result,
         ),
         patch("notebooklm_tools.mcp.tools.downloads.PUBLIC_DIR", PUBLIC_DIR),

@@ -11,6 +11,9 @@ Tested with personal/free tier accounts. May work with Google Workspace accounts
 ## Development Commands
 
 ```bash
+# Fetch latest from remote (run before git operations)
+git fetch
+
 # Install dependencies
 uv tool install .
 
@@ -142,7 +145,8 @@ src/notebooklm_tools/
 | `notebook_get` | Get notebook details |
 | `notebook_describe` | Get AI-generated summary of notebook content with keywords |
 | `source_describe` | Get AI-generated summary and keyword chips for a source |
-| `source_get_content` | Get raw text content from a source (no AI processing) |
+| `source_get_content` | Get raw text content from a source (no AI processing). Supports `wait`, `wait_timeout`, `poll_interval` params and returns `download_url` when MCP HTTP transport is active. |
+| `source_add_chatgpt_file` | Add a ChatGPT-uploaded file to a notebook (supports `openai/fileParams`). Supports `wait`, `wait_timeout`, `cleanup` params. |
 | `notebook_rename` | Rename a notebook |
 | `chat_configure` | Configure chat goal/style and response length |
 | `notebook_delete` | Delete a notebook (REQUIRES confirmation) |
@@ -156,7 +160,7 @@ src/notebooklm_tools/
 | `research_status` | Check research progress and get results |
 | `research_import` | Import discovered sources into notebook |
 | `studio_create` | Generate unified content (audio, video, infographic, slides, etc.) |
-| `download_artifact` | Download any artifact (audio, video, pdf, markdown, json) |
+| `download_artifact` | Download any artifact (audio, video, pdf, markdown, json). Supports `wait`, `wait_timeout`, `poll_interval` params and returns `download_url` when MCP HTTP transport is active. |
 | `export_artifact` | Export Data Tables to Google Sheets or Reports to Google Docs |
 | `studio_status` | Check studio artifact generation status |
 | `studio_delete` | Delete studio artifacts (REQUIRES confirmation) |

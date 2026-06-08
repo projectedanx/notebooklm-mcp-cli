@@ -1,6 +1,8 @@
 """Downloads service — shared validation and routing for artifact downloads."""
 
+import asyncio
 import inspect
+import time as _time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, cast
@@ -433,3 +435,72 @@ async def _dispatch_async(
         raise ValidationError(
             f"Artifact type '{artifact_type}' is not supported for async download.",
         )
+
+
+# ---------------------------------------------------------------------------
+# Download polling for transient states
+# ---------------------------------------------------------------------------
+
+class PollDownloadResult(TypedDict):
+    """Result of a download operation with polling metadata."""
+
+    artifact_type: str
+    path: str
+    attempts: int
+
+
+def _is_transient_download_error(message: str) -> bool:
+    """Return True for NotebookLM artifact states that may resolve after polling."""
+    lowered = message.lower()
+    return any(
+        phrase in lowered
+        for phrase in (
+            "not ready",
+            "does not exist",
+            "still propagating",
+            "try again",
+            "download failed",
+            "is complete, but its media download url is still propagating",
+        )
+    )
+
+
+async def poll_download_artifact(
+    client: NotebookLMClient,
+    notebook_id: str,
+    artifact_type: str,
+    output_path: str,
+    *,
+    artifact_id: str | None = None,
+    output_format: str = "json",
+    slide_deck_format: str = "pdf",
+    wait: bool = True,
+    wait_timeout: float = 180.0,
+    poll_interval: float = 5.0,
+) -> PollDownloadResult:
+    """Download an artifact with polling for transient propagating states."""
+    deadline = _time.monotonic() + max(0.0, wait_timeout)
+    attempts = 0
+
+    while True:
+        attempts += 1
+        try:
+            download_result = await download_async(
+                client,
+                notebook_id,
+                artifact_type,
+                output_path,
+                artifact_id=artifact_id,
+                output_format=output_format,
+                slide_deck_format=slide_deck_format,
+            )
+            return {
+                "artifact_type": download_result["artifact_type"],
+                "path": download_result["path"],
+                "attempts": attempts,
+            }
+        except ServiceError as e:
+            message = f"{e.user_message} {e}"
+            if not wait or not _is_transient_download_error(message) or _time.monotonic() >= deadline:
+                raise
+            await asyncio.sleep(max(0.5, poll_interval))

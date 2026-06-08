@@ -16,9 +16,9 @@ def test_source_add_chatgpt_file_is_registered_with_file_param_meta():
 
 def test_coerce_chatgpt_file_reference_accepts_json_string():
     """Some MCP clients serialize file params as JSON strings."""
-    from notebooklm_tools.mcp.tools.sources import _coerce_chatgpt_file_reference
+    from notebooklm_tools.services.sources import coerce_chatgpt_file_reference
 
-    result = _coerce_chatgpt_file_reference(
+    result = coerce_chatgpt_file_reference(
         '{"download_url":"https://example.test/file.pdf","file_id":"file_123"}'
     )
 
@@ -55,23 +55,21 @@ def test_source_add_chatgpt_file_downloads_and_uploads_then_cleans_cache(tmp_pat
         assert timeout == 30
         return FakeResponse()
 
-    def fake_source_add(**kwargs):
+    def fake_add_source(client, notebook_id, source_type, **kwargs):
         path = Path(kwargs["file_path"])
         cached_paths.append(path)
         assert path.exists()
         assert path.read_bytes() == b"hello from chatgpt"
         return {
-            "status": "success",
-            "ready": kwargs["wait"],
             "source_type": "file",
             "source_id": "source-123",
-            "title": kwargs["title"],
+            "title": kwargs.get("title"),
         }
 
     with (
-        patch.object(sources, "CHATGPT_FILE_CACHE_DIR", tmp_path),
-        patch("notebooklm_tools.mcp.tools.sources.urllib.request.urlopen", fake_urlopen),
-        patch("notebooklm_tools.mcp.tools.sources.source_add", side_effect=fake_source_add),
+        patch("notebooklm_tools.services.sources.CHATGPT_FILE_CACHE_DIR", tmp_path),
+        patch("notebooklm_tools.services.sources.urllib.request.urlopen", fake_urlopen),
+        patch("notebooklm_tools.services.sources.add_source", side_effect=fake_add_source),
     ):
         result = sources.source_add_chatgpt_file(
             notebook_id="notebook-123",

@@ -1,6 +1,13 @@
 """Sources service — shared validation and logic for source management."""
 
+import hashlib
+import json
+import os
+import tempfile
+import time as _time
 import urllib.parse
+import urllib.request
+from pathlib import Path
 from typing import Any
 
 from ..core.client import NotebookLMClient
@@ -85,6 +92,27 @@ class BulkAddResult(TypedDict):
 
     results: list[AddSourceResult]
     added_count: int
+
+
+class ChatGPTFileResult(TypedDict):
+    """Result of downloading a ChatGPT file to local cache."""
+
+    file_path: str
+    file_name: str
+    size_bytes: int
+    sha256: str
+    original_file_id: str
+
+
+class PollSourceContentResult(TypedDict):
+    """Result of getting source content with polling."""
+
+    source_id: str
+    content: str
+    title: str
+    source_type: str
+    char_count: int
+    attempts: int
 
 
 def validate_source_type(source_type: str) -> None:
@@ -628,3 +656,237 @@ def get_source_content(
             f"Failed to get content for source {source_id}: {e}",
             user_message="Failed to get source content.",
         ) from e
+
+
+# ---------------------------------------------------------------------------
+# ChatGPT file upload bridge
+# ---------------------------------------------------------------------------
+
+CHATGPT_FILE_MAX_BYTES = int(
+    os.environ.get("NOTEBOOKLM_CHATGPT_FILE_MAX_BYTES", str(25 * 1024 * 1024))
+)
+CHATGPT_FILE_CACHE_DIR = Path(
+    os.environ.get("NOTEBOOKLM_CHATGPT_FILE_CACHE_DIR", "")
+    or Path(tempfile.gettempdir()) / "notebooklm-chatgpt-files"
+)
+CHATGPT_FILE_ALLOWED_EXTENSIONS = frozenset({
+    ".pdf", ".txt", ".md", ".docx", ".csv", ".epub",
+    ".mp3", ".m4a", ".wav", ".aac", ".ogg", ".opus",
+    ".mp4", ".jpg", ".jpeg", ".png", ".gif", ".webp",
+})
+
+
+def safe_chatgpt_filename(name: object, default: str = "chatgpt-upload.bin") -> str:
+    """Sanitize a filename for safe filesystem storage."""
+    raw = Path(str(name or default)).name
+    safe = "".join(ch if ch.isalnum() or ch in "._- ()" else "_" for ch in raw).strip(". ")
+    return safe[:180] or default
+
+
+def coerce_chatgpt_file_reference(file: dict[str, object] | str | None) -> dict[str, object]:
+    """Coerce a ChatGPT file parameter into a normalized dict.
+
+    MCP clients may send the file as a dict, a JSON-encoded string, or None.
+    """
+    if isinstance(file, dict):
+        return file
+    if isinstance(file, str):
+        raw = file.strip()
+        if not raw:
+            raise ValidationError(
+                "file must be a resolved ChatGPT file object, not an empty string."
+            )
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValidationError(
+                "file must be a resolved ChatGPT file object or a JSON-encoded file object."
+            ) from exc
+        if isinstance(parsed, dict):
+            return parsed
+    raise ValidationError("file must be a ChatGPT file object.")
+
+
+def validate_chatgpt_file_url(file: dict[str, object]) -> str:
+    """Extract and validate the HTTPS download URL from a ChatGPT file object."""
+    value = file.get("download_url") or file.get("download_link")
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError("file.download_url is required for ChatGPT file uploads.")
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme.lower() != "https":
+        raise ValidationError("ChatGPT file download URL must use https.")
+    return value
+
+
+def download_chatgpt_file(file: dict[str, object]) -> ChatGPTFileResult:
+    """Download a ChatGPT file to the local cache with size and type validation.
+
+    Caller is responsible for cleanup.
+    """
+    file_name = safe_chatgpt_filename(file.get("file_name") or file.get("name"))
+    extension = Path(file_name).suffix.lower()
+    if extension not in CHATGPT_FILE_ALLOWED_EXTENSIONS:
+        raise ValidationError(
+            f"Unsupported ChatGPT file extension '{extension or '[none]'}'. "
+            "Upload a NotebookLM-supported file type."
+        )
+
+    CHATGPT_FILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    # Use unique temp filename from the start to avoid TOCTOU on concurrent calls
+    stem = Path(file_name).stem[:120]
+    local_path = CHATGPT_FILE_CACHE_DIR / f"{stem}-{os.urandom(8).hex()}{extension}"
+
+    url = validate_chatgpt_file_url(file)
+    request = urllib.request.Request(url, headers={"User-Agent": "notebooklm-mcp-chatgpt-file/1.0"})
+    sha256 = hashlib.sha256()
+    total = 0
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response, local_path.open("xb") as out:
+            declared = response.headers.get("Content-Length")
+            if declared and int(declared) > CHATGPT_FILE_MAX_BYTES:
+                raise ValidationError(
+                    f"ChatGPT file exceeds size limit ({CHATGPT_FILE_MAX_BYTES} bytes)."
+                )
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > CHATGPT_FILE_MAX_BYTES:
+                    raise ValidationError(
+                        f"ChatGPT file exceeds size limit ({CHATGPT_FILE_MAX_BYTES} bytes)."
+                    )
+                sha256.update(chunk)
+                out.write(chunk)
+    except Exception:
+        local_path.unlink(missing_ok=True)
+        raise
+
+    if total == 0:
+        local_path.unlink(missing_ok=True)
+        raise ValidationError("ChatGPT file is empty.")
+
+    return {
+        "file_path": str(local_path),
+        "file_name": file_name,
+        "size_bytes": total,
+        "sha256": sha256.hexdigest(),
+        "original_file_id": str(file.get("file_id") or file.get("id") or ""),
+    }
+
+
+def add_chatgpt_file_source(
+    client: NotebookLMClient,
+    notebook_id: str,
+    file: dict[str, object] | str | None,
+    *,
+    title: str | None = None,
+    wait: bool = False,
+    wait_timeout: float = 120.0,
+    cleanup: bool = True,
+) -> dict[str, object]:
+    """Download a ChatGPT file and add it as a source to a notebook."""
+    cached: ChatGPTFileResult | None = None
+    try:
+        file_ref = coerce_chatgpt_file_reference(file)
+        cached = download_chatgpt_file(file_ref)
+        result = add_source(
+            client,
+            notebook_id,
+            "file",
+            file_path=str(cached["file_path"]),
+            title=title,
+            wait=wait,
+            wait_timeout=wait_timeout,
+        )
+        return {
+            "source_type": result["source_type"],
+            "source_id": result["source_id"],
+            "title": result["title"],
+            "chatgpt_file": {
+                "original_file_id": cached["original_file_id"],
+                "file_name": cached["file_name"],
+                "size_bytes": cached["size_bytes"],
+                "sha256": cached["sha256"],
+                "cached_path": None if cleanup else cached["file_path"],
+                "cleanup": cleanup,
+            },
+        }
+    finally:
+        if cleanup and cached and cached.get("file_path"):
+            Path(str(cached["file_path"])).unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Source content polling
+# ---------------------------------------------------------------------------
+
+def _is_transient_source_error(message: str) -> bool:
+    """Return True for NotebookLM source-content states that may resolve after polling."""
+    lowered = message.lower()
+    return any(
+        phrase in lowered
+        for phrase in (
+            "failed to get source content",
+            "no content returned",
+            "not ready",
+            "processing",
+            "indexing",
+            "try again",
+        )
+    )
+
+
+def poll_source_content(
+    client: NotebookLMClient,
+    source_id: str,
+    *,
+    wait: bool = True,
+    wait_timeout: float = 120.0,
+    poll_interval: float = 3.0,
+) -> PollSourceContentResult:
+    """Get source content with polling for transient indexing states."""
+    deadline = _time.monotonic() + max(0.0, wait_timeout)
+    attempts = 0
+    last_error: ServiceError | None = None
+
+    while True:
+        attempts += 1
+        try:
+            result = get_source_content(client, source_id)
+            if result.get("content") or not wait:
+                return {
+                    "source_id": source_id,
+                    "content": result["content"],
+                    "title": result["title"],
+                    "source_type": result["source_type"],
+                    "char_count": result["char_count"],
+                    "attempts": attempts,
+                    "status": "success",
+                }
+        except ServiceError as e:
+            last_error = e
+            message = f"{e.user_message} {e}"
+            if (
+                not wait
+                or not _is_transient_source_error(message)
+                or _time.monotonic() >= deadline
+            ):
+                raise
+        if not wait or _time.monotonic() >= deadline:
+            if last_error:
+                raise last_error
+            err = ServiceError(
+                "Source content is not ready yet.",
+                user_message=(
+                    "Source content is not ready yet."
+                ),
+                hint=(
+                    "NotebookLM may still be indexing this source. "
+                    "Retry source_get_content shortly or increase wait_timeout."
+                ),
+            )
+            err.attempts = attempts
+            raise err
+        _time.sleep(max(0.5, poll_interval))

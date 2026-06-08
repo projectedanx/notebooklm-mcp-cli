@@ -1,28 +1,12 @@
 """Download tools - Consolidated download_artifact for all artifact types."""
 
 import asyncio
-import time
 from urllib.parse import quote
 
 from ...services import ServiceError, ValidationError
 from ...services import downloads as downloads_service
+from ...services.downloads import poll_download_artifact
 from ._utils import PUBLIC_DIR, ResultDict, error_result, get_client, get_mcp_base_url, logged_tool
-
-
-def _download_transient(message: str) -> bool:
-    """Return True for NotebookLM artifact states that may resolve after polling."""
-    lowered = message.lower()
-    return any(
-        phrase in lowered
-        for phrase in (
-            "not ready",
-            "does not exist",
-            "still propagating",
-            "try again",
-            "download failed",
-            "is complete, but its media download url is still propagating",
-        )
-    )
 
 
 @logged_tool()
@@ -73,31 +57,24 @@ def download_artifact(
     """
     try:
         client = get_client()
-        deadline = time.monotonic() + max(0.0, wait_timeout)
-        attempts = 0
-
-        while True:
-            attempts += 1
-            try:
-                download_result = asyncio.run(
-                    downloads_service.download_async(
-                        client,
-                        notebook_id,
-                        artifact_type,
-                        output_path,
-                        artifact_id=artifact_id,
-                        output_format=output_format,
-                        slide_deck_format=slide_deck_format,
-                    )
-                )
-                break
-            except ServiceError as e:
-                message = f"{e.user_message} {e}"
-                if not wait or not _download_transient(message) or time.monotonic() >= deadline:
-                    raise
-                time.sleep(max(0.5, poll_interval))
+        download_result = asyncio.run(
+            poll_download_artifact(
+                client,
+                notebook_id,
+                artifact_type,
+                output_path,
+                artifact_id=artifact_id,
+                output_format=output_format,
+                slide_deck_format=slide_deck_format,
+                wait=wait,
+                wait_timeout=wait_timeout,
+                poll_interval=poll_interval,
+            )
+        )
 
         saved_path = download_result["path"]
+
+        # Presentation: copy to PUBLIC_DIR and generate download_url
         try:
             import shutil
             from pathlib import Path

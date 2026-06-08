@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-06-08
+
+### Added
+
+- **ChatGPT File Parameter Upload Bridge (PR #220)** — Enables direct upload of files provided by ChatGPT App/Action clients by resolving and downloading from the client's temporary HTTPS URL before uploading to Google NotebookLM. Thanks to **@Sanity-Cloud**!
+- **ChatGPT Artifact Download Bridge (PR #220)** — Allows copying generated artifacts to the local server's public directory and returning public download links when the server runs behind secure tunnels. Exposes a new `/artifacts/{filename}` route in the MCP HTTP server. Thanks to **@Sanity-Cloud**!
+- **Transient Source Content Polling** (`poll_source_content` service function) — Automatically handles Google NotebookLM indexing states (processing, indexing, try again) via robust polling with exponential backoff when fetching raw source contents immediately after creation.
+
+### Fixed
+
+- **Sanitize `no_proxy` environment variable (PR #221)** — Fixed package import crashes on Windows systems by cleaning up the `no_proxy` environment variable on initialization before `httpx` parses it. Thanks to **@insane66613**!
+- **Modern Chrome Cookie DB path detection (PR #222)** — Improved the SQLite cookie database location search logic for Google Chrome to work correctly with modern Chrome setups. Thanks to **@Sanity-Cloud**!
+- **Profile-aware headless refresh (PR #223)** — Fixed headless login refresh to use the default/active profile configured in the CLI configuration file instead of falling back. Thanks to **@Sanity-Cloud**!
+
 ## [0.7.1] - 2026-06-06
 
 ### Fixed
