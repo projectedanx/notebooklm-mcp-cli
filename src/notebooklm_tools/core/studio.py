@@ -135,17 +135,17 @@ class StudioMixin(BaseClient):
     def _coerce_source_ids(raw: Any) -> list[str]:
         """Coerce a raw source list into UUID strings.
 
-        Entries appear either as bare strings (``"uuid"``) or single-element
-        lists (``["uuid"]``); anything else is ignored.
+        Entries appear as bare strings (``"uuid"``) or UUIDs wrapped in one
+        or more single-element lists; anything else is ignored.
         """
         if not isinstance(raw, list):
             return []
         ids: list[str] = []
         for entry in raw:
+            while isinstance(entry, list) and len(entry) == 1:
+                entry = entry[0]
             if isinstance(entry, str):
                 ids.append(entry)
-            elif isinstance(entry, list) and entry and isinstance(entry[0], str):
-                ids.append(entry[0])
         return ids
 
     def _extract_artifact_source_ids(self, artifact_data: list[Any], type_code: Any) -> list[str]:

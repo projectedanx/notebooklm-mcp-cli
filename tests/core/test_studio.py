@@ -158,9 +158,28 @@ class TestStudioMixinMethods:
             None,
         ]
 
-        assert mixin._extract_artifact_source_ids(
-            artifact_data, mixin.STUDIO_TYPE_REPORT
-        ) == ["uuid-x", "uuid-y"]
+        assert mixin._extract_artifact_source_ids(artifact_data, mixin.STUDIO_TYPE_REPORT) == [
+            "uuid-x",
+            "uuid-y",
+        ]
+
+    def test_extract_artifact_source_ids_reads_live_triple_nested_shape(self):
+        """Poll responses wrap each source UUID in two single-element lists."""
+        mixin = StudioMixin(cookies={"test": "cookie"}, csrf_token="test")
+
+        artifact_data = [
+            "art-1",
+            "Video Artifact",
+            mixin.STUDIO_TYPE_VIDEO,
+            [[["uuid-x"]], [["uuid-y"]]],
+            3,
+            None,
+        ]
+
+        assert mixin._extract_artifact_source_ids(artifact_data, mixin.STUDIO_TYPE_VIDEO) == [
+            "uuid-x",
+            "uuid-y",
+        ]
 
     def test_extract_artifact_source_ids_accepts_flat_string_entries(self):
         mixin = StudioMixin(cookies={"test": "cookie"}, csrf_token="test")
@@ -174,9 +193,10 @@ class TestStudioMixinMethods:
             None,
         ]
 
-        assert mixin._extract_artifact_source_ids(
-            artifact_data, mixin.STUDIO_TYPE_AUDIO
-        ) == ["uuid-a", "uuid-b"]
+        assert mixin._extract_artifact_source_ids(artifact_data, mixin.STUDIO_TYPE_AUDIO) == [
+            "uuid-a",
+            "uuid-b",
+        ]
 
     def test_extract_artifact_source_ids_falls_back_to_audio_options(self):
         """When the top-level field is empty, audio sources at [6][1][3] are used."""
@@ -200,9 +220,10 @@ class TestStudioMixinMethods:
             ],
         ]
 
-        assert mixin._extract_artifact_source_ids(
-            artifact_data, mixin.STUDIO_TYPE_AUDIO
-        ) == ["uuid-aaa", "uuid-bbb"]
+        assert mixin._extract_artifact_source_ids(artifact_data, mixin.STUDIO_TYPE_AUDIO) == [
+            "uuid-aaa",
+            "uuid-bbb",
+        ]
 
     def test_extract_artifact_source_ids_returns_empty_for_malformed_payload(self):
         mixin = StudioMixin(cookies={"test": "cookie"}, csrf_token="test")

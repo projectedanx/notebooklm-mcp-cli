@@ -674,9 +674,7 @@ def get_studio_status(
             or raw_artifact.get("duration_seconds") is None
             else None,
             "source_ids": [
-                sid
-                for sid in (raw_artifact.get("source_ids") or [])
-                if isinstance(sid, str)
+                sid for sid in (raw_artifact.get("source_ids") or []) if isinstance(sid, str)
             ],
         }
         artifact_id = raw_artifact.get("artifact_id")
