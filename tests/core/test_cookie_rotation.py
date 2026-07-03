@@ -21,9 +21,7 @@ def test_rotate_google_cookies_posts_expected_request(monkeypatch):
         seen["origin"] = request.headers.get("origin")
         return httpx.Response(
             200,
-            headers={
-                "Set-Cookie": "__Secure-1PSIDTS=rotated; Domain=.google.com; Path=/; Secure"
-            },
+            headers={"Set-Cookie": "__Secure-1PSIDTS=rotated; Domain=.google.com; Path=/; Secure"},
         )
 
     client = httpx.Client(
