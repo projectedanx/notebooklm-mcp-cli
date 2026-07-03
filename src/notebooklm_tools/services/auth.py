@@ -28,18 +28,26 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from notebooklm_tools.core import auth as _core_auth
+from notebooklm_tools.services.auth_replay import (
+    AuthReplayDiagnostic,
+    AuthReplayProbe,
+    diagnose_auth_replay,
+)
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "AuthHealthChecker",  # defined locally in this module
     "AuthHealthReport",  # defined locally in this module
+    "AuthReplayDiagnostic",  # provided by services.auth_replay
+    "AuthReplayProbe",  # provided by services.auth_replay
     "AuthManager",  # noqa: F822 — provided lazily via PEP 562 __getattr__
     "AuthProbeResult",  # defined locally in this module
     "AuthTokens",  # noqa: F822 — provided lazily via PEP 562 __getattr__
     "check_auth",
     "confirm_auth_via_api",
     "credentials_are_usable",
+    "diagnose_auth_replay",
     "get_active_auth_mtime",
     "get_auth_health_checker",
     "get_cache_path",

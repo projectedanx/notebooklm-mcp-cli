@@ -29,7 +29,7 @@ class AuthTokens:
     they can be auto-extracted from the NotebookLM page when needed.
     """
 
-    cookies: dict[str, str]
+    cookies: dict[str, str] | list[dict[str, Any]]
     csrf_token: str = ""  # Optional - auto-extracted from page
     session_id: str = ""  # Optional - auto-extracted from page
     build_label: str = ""  # Optional - auto-extracted from page (cfb2h key)
@@ -66,7 +66,8 @@ class AuthTokens:
     @property
     def cookie_header(self) -> str:
         """Get cookies as a header string."""
-        return "; ".join(f"{k}={v}" for k, v in self.cookies.items())
+        cookies = _flatten_cookie_input(self.cookies)
+        return "; ".join(f"{k}={v}" for k, v in cookies.items())
 
 
 def get_cache_path() -> Path:
@@ -272,9 +273,31 @@ def parse_cookies_from_chrome_format(cookies_list: list[dict]) -> dict[str, str]
 REQUIRED_COOKIES = ["SID", "HSID", "SSID", "APISID", "SAPISID"]
 
 
-def validate_cookies(cookies: dict[str, str]) -> bool:
+def _flatten_cookie_input(cookies: dict[str, str] | list[dict[str, Any]]) -> dict[str, str]:
+    """Flatten cookies while preferring exact ``.google.com`` domain values."""
+    if isinstance(cookies, dict):
+        return cookies
+
+    out: dict[str, str] = {}
+    google_locked: set[str] = set()
+    for cookie in cookies:
+        name = cookie.get("name")
+        value = cookie.get("value")
+        if not name or value is None:
+            continue
+        is_google = (cookie.get("domain") or "").lstrip(".").lower() == "google.com"
+        if name in google_locked and not is_google:
+            continue
+        out[str(name)] = str(value)
+        if is_google:
+            google_locked.add(str(name))
+    return out
+
+
+def validate_cookies(cookies: dict[str, str] | list[dict[str, Any]]) -> bool:
     """Check if required cookies are present."""
-    return all(required in cookies for required in REQUIRED_COOKIES)
+    flat = _flatten_cookie_input(cookies)
+    return all(required in flat for required in REQUIRED_COOKIES)
 
 
 # =============================================================================
@@ -336,6 +359,7 @@ class Profile:
             session_id=data.get("session_id"),
             email=data.get("email"),
             last_validated=last_validated,
+            build_label=data.get("build_label"),
         )
 
 
@@ -501,10 +525,7 @@ class AuthManager:
     def get_cookies(self) -> dict[str, str]:
         """Get cookies for the current profile as simple dict."""
         profile = self.load_profile()
-        if isinstance(profile.cookies, list):
-            # Convert list[dict] to dict[str, str]
-            return {c["name"]: c["value"] for c in profile.cookies if "name" in c and "value" in c}
-        return profile.cookies
+        return _flatten_cookie_input(profile.cookies)
 
     def get_raw_cookies(self) -> list[dict] | dict[str, str]:
         """Get raw cookies (list or dict)."""
@@ -523,7 +544,7 @@ class AuthManager:
 
         profile = self.load_profile()
         headers = {
-            "Cookie": cookies_to_header(profile.cookies),
+            "Cookie": cookies_to_header(_flatten_cookie_input(profile.cookies)),
             "Content-Type": "application/x-www-form-urlencoded",
             "Origin": get_base_url(),
             "Referer": f"{get_base_url()}/",
@@ -629,10 +650,7 @@ def _fetch_notebooklm_homepage(
 
     from notebooklm_tools.utils.browser import cookies_to_header
 
-    if isinstance(cookies, list):
-        cookie_dict = {c["name"]: c["value"] for c in cookies if "name" in c and "value" in c}
-    else:
-        cookie_dict = cookies
+    cookie_dict = _flatten_cookie_input(cookies)
 
     headers = _PAGE_FETCH_HEADERS.copy()
 
@@ -691,11 +709,8 @@ def check_auth(
             profile=profile,
         )
 
-    # Convert to simple dict for the fetch helper
-    if isinstance(p.cookies, list):
-        cookie_dict = {c["name"]: c["value"] for c in p.cookies if "name" in c and "value" in c}
-    else:
-        cookie_dict = p.cookies
+    # Convert to simple dict for the fetch helper.
+    cookie_dict = _flatten_cookie_input(p.cookies)
 
     if not cookie_dict:
         return AuthCheckResult(valid=False, reason="no_tokens", live=live, profile=profile)
